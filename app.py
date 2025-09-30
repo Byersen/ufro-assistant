@@ -157,7 +157,7 @@ def main():
         return
 
     # Modo interactivo
-    print("Escribe 'exit' para salir. Comandos: /prov para cambiar proveedor | /compare para comparar | 4 = comparar")
+    print("Escribe 'exit' para salir. Comandos: /prov (cambiar) | /compare (comparar) | 4 (comparar) | /deepseek | /chatgpt")
     while True:
         try:
             query = input("Consulta: ")
@@ -250,6 +250,122 @@ def main():
             print(f"Más rápido: {fastest['time']:.2f}s ({fastest['model']})")
             print(f"Más lento: {slowest['time']:.2f}s ({slowest['model']})")
             print("(Retrieve común): {:.2f}s".format(t_retr))
+            print()
+            continue
+
+        # Comando para forzar DeepSeek en una sola consulta
+        if ql.startswith('/deepseek'):
+            parts = query.split(' ', 1)
+            dq = parts[1].strip() if len(parts) > 1 else ''
+            if not dq:
+                dq = input("Consulta para DeepSeek: ").strip()
+                if not dq:
+                    continue
+
+            # Recuperación
+            try:
+                t_retr0 = time.time()
+                d_chunks = retrieve(dq, index, chunks_df, args.k)
+                d_retr = time.time() - t_retr0
+            except FileNotFoundError as e:
+                print(f"[RAG deshabilitado] {e}")
+                d_chunks, d_retr = [], 0.0
+            d_docs = [{
+                'content': getattr(c, 'content', ''),
+                'source': getattr(c, 'source', ''),
+                'page': getattr(c, 'page', None),
+                'score': getattr(c, 'score', None)
+            } for c in d_chunks]
+            d_user = build_user_prompt(dq, d_docs)
+            d_system = get_system_prompt()
+            d_messages = [{"role":"system","content":d_system},{"role":"user","content":d_user}]
+
+            # Chat con DeepSeek
+            from providers.deepseek import DeepSeekProvider
+            try:
+                dsp = DeepSeekProvider()
+            except Exception as e:
+                print(f"[DeepSeek no disponible] {e}")
+                print("Sugerencia: configura DEEPSEEK_API_KEY en tu .env o usa /chatgpt")
+                continue
+            try:
+                t0 = time.time()
+                d_ans = dsp.chat(d_messages)
+                d_chat = time.time() - t0
+            except Exception as e:
+                d_ans, d_chat = f"[Error proveedor] {e}", 0.0
+
+            print(f"\n[DeepSeek] Respuesta:\n{d_ans}\n")
+            def _approx_tokens(text: str) -> int:
+                return max(1, len(text)//4)
+            d_tin = _approx_tokens(str(d_messages)); d_tout = _approx_tokens(d_ans)
+            try:
+                d_cost = dsp.estimate_cost(d_tin, d_tout)
+            except Exception:
+                d_cost = 0.0
+            print("[Stats]")
+            print(f"  Proveedor: {dsp.name}")
+            print(f"  k: {args.k} | Chunks recuperados: {len(d_chunks)}")
+            print(f"  Latencia retrieve: {d_retr:.3f}s | Latencia chat: {d_chat:.3f}s")
+            print(f"  Tokens aprox IN: {d_tin} | OUT: {d_tout} | Costo estimado: ${d_cost:.6f}")
+            print()
+            continue
+
+        # Comando para forzar ChatGPT en una sola consulta
+        if ql.startswith('/chatgpt'):
+            parts = query.split(' ', 1)
+            cq = parts[1].strip() if len(parts) > 1 else ''
+            if not cq:
+                cq = input("Consulta para ChatGPT: ").strip()
+                if not cq:
+                    continue
+
+            # Recuperación
+            try:
+                t_retr0 = time.time()
+                c_chunks = retrieve(cq, index, chunks_df, args.k)
+                c_retr = time.time() - t_retr0
+            except FileNotFoundError as e:
+                print(f"[RAG deshabilitado] {e}")
+                c_chunks, c_retr = [], 0.0
+            c_docs = [{
+                'content': getattr(c, 'content', ''),
+                'source': getattr(c, 'source', ''),
+                'page': getattr(c, 'page', None),
+                'score': getattr(c, 'score', None)
+            } for c in c_chunks]
+            c_user = build_user_prompt(cq, c_docs)
+            c_system = get_system_prompt()
+            c_messages = [{"role":"system","content":c_system},{"role":"user","content":c_user}]
+
+            # Chat con ChatGPT
+            from providers.chatgpt import ChatGPTProvider
+            try:
+                csp = ChatGPTProvider()
+            except Exception as e:
+                print(f"[ChatGPT no disponible] {e}")
+                print("Sugerencia: configura OPENROUTER_API_KEY u OPENAI_API_KEY en tu .env o usa /deepseek")
+                continue
+            try:
+                t0 = time.time()
+                c_ans = csp.chat(c_messages)
+                c_chat = time.time() - t0
+            except Exception as e:
+                c_ans, c_chat = f"[Error proveedor] {e}", 0.0
+
+            print(f"\n[ChatGPT] Respuesta:\n{c_ans}\n")
+            def _approx_tokens(text: str) -> int:
+                return max(1, len(text)//4)
+            c_tin = _approx_tokens(str(c_messages)); c_tout = _approx_tokens(c_ans)
+            try:
+                c_cost = csp.estimate_cost(c_tin, c_tout)
+            except Exception:
+                c_cost = 0.0
+            print("[Stats]")
+            print(f"  Proveedor: {csp.name}")
+            print(f"  k: {args.k} | Chunks recuperados: {len(c_chunks)}")
+            print(f"  Latencia retrieve: {c_retr:.3f}s | Latencia chat: {c_chat:.3f}s")
+            print(f"  Tokens aprox IN: {c_tin} | OUT: {c_tout} | Costo estimado: ${c_cost:.6f}")
             print()
             continue
 
