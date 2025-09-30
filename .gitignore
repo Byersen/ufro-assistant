@@ -1,2 +1,62 @@
-venv
+# Python environment
+venv/
+.venv/
+env/
+*.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.python-version
+
+# Environment variables
 .env
+.env.local
+.env.production
+
+# Data directories
+data/processed/
+data/qdrant_storage/
+data/raw/
+data/index.faiss
+data/**/*.faiss
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+AGENTS.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Test coverage
+.coverage
+htmlcov/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Python caches and tooling
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Packaging/build artifacts (if publishing)
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Evaluation outputs (keep gold sets but ignore generated reports)
+eval/detailed_results_*.csv
+eval/evaluation_summary_*.json
+eval/comparison_summary_*.csv

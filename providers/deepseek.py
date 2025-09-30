@@ -1,6 +1,8 @@
 import os
 import time
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from typing import List, Dict, Any
 from .base import BaseProvider
 
@@ -37,6 +39,17 @@ class DeepSeekProvider(BaseProvider):
         
         if not self.api_key:
             raise ValueError("DEEPSEEK_API_KEY no está configurado en el archivo .env")
+        # Sesión con reintentos simples para errores transitorios
+        self.session = requests.Session()
+        retries = Retry(
+            total=3,
+            backoff_factor=0.5,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["POST"],
+            raise_on_status=False,
+        )
+        self.session.mount("https://", HTTPAdapter(max_retries=retries))
+        self.session.mount("http://", HTTPAdapter(max_retries=retries))
 
         # Validar modelo
         if self.model not in self.SUPPORTED_MODELS:
@@ -65,7 +78,7 @@ class DeepSeekProvider(BaseProvider):
         }
         
         try:
-            response = requests.post(
+            response = self.session.post(
                 self.endpoint,
                 headers=headers, 
                 json=payload,

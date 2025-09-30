@@ -1,7 +1,7 @@
 import os
 import faiss
 import pandas as pd
-from typing import List
+from typing import List, Optional
 from .embedding_system import EmbeddingSystem
 from .data_models import DocumentChunk
 
@@ -9,22 +9,34 @@ class Retriever:
     """Sistema de búsqueda vectorial usando FAISS"""
 
     def __init__(self, index_path: str = "data/index.faiss",
-                 chunks_path: str = "data/processed/chunks_with_embeddings.parquet"):
+                 chunks_path: str = "data/processed/chunks_with_embeddings.parquet",
+                 index: Optional[faiss.Index] = None,
+                 chunks_df: Optional[pd.DataFrame] = None):
         self.index_path = index_path
         self.chunks_path = chunks_path
         self.embedding_system = EmbeddingSystem()
-        self.index = None
+        self.index = index
         self.chunks: List[DocumentChunk] = []
 
-        self._load_index_and_chunks()
+        self._load_index_and_chunks(chunks_df)
 
-    def _load_index_and_chunks(self):
-        """Carga el índice FAISS y los chunks procesados"""
-        if not os.path.exists(self.index_path) or not os.path.exists(self.chunks_path):
-            raise FileNotFoundError("FAISS index o chunks no encontrados")
-        
-        self.index = faiss.read_index(self.index_path)
-        df = pd.read_parquet(self.chunks_path)
+    def _load_index_and_chunks(self, chunks_df: Optional[pd.DataFrame] = None):
+        """Carga el índice FAISS y los chunks procesados, o usa los provistos."""
+        # Índice: usar el provisto o cargar desde disco
+        if self.index is None:
+            if os.path.exists(self.index_path):
+                self.index = faiss.read_index(self.index_path)
+            else:
+                raise FileNotFoundError("No se encontró el índice FAISS. Ejecuta 'python -m rag.ingest' y luego 'python -m rag.embed'.")
+
+        # Chunks: usar el DataFrame provisto o cargar desde disco
+        if chunks_df is not None:
+            df = chunks_df
+        else:
+            if os.path.exists(self.chunks_path):
+                df = pd.read_parquet(self.chunks_path)
+            else:
+                raise FileNotFoundError("No se encontraron los chunks procesados. Ejecuta 'python -m rag.ingest' y luego 'python -m rag.embed'.")
         
         # Mapear columnas del parquet al modelo DocumentChunk
         chunks_data = []
@@ -75,6 +87,5 @@ def retrieve(query: str, index=None, chunks_df: pd.DataFrame | None = None, k: i
 
     Si se provee un índice y un DataFrame de chunks ya cargados, se ignoran las rutas por defecto.
     """
-    retriever = Retriever()
-    # Nota: Para simplicidad mantenemos carga interna; se podría optimizar para usar index/chunks_df externos.
+    retriever = Retriever(index=index, chunks_df=chunks_df)
     return retriever.search(query, k)

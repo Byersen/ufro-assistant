@@ -56,7 +56,7 @@ def main():
     parser.add_argument('--gold', default='eval/gold_set_20.jsonl')
     args = parser.parse_args()
 
-    # Cargar índice y chunks si existen
+    # Cargar índice y chunks si existen (modo amistoso)
     index = faiss.read_index('data/index.faiss') if os.path.exists('data/index.faiss') else None
     chunks_df = None
     chunks_df_path = 'data/processed/chunks_with_embeddings.parquet'
@@ -66,6 +66,12 @@ def main():
         fallback = 'data/processed/chunks.parquet'
         if os.path.exists(fallback):
             chunks_df = pd.read_parquet(fallback)
+
+    if index is None or chunks_df is None:
+        print("\n[Info] No se encontró el índice FAISS o los chunks procesados.")
+        print("      Para habilitar RAG, ejecuta:")
+        print("        1) python -m rag.ingest")
+        print("        2) python -m rag.embed\n")
 
     # Elegir proveedor inicial
     provider_key = args.provider if args.provider != 'ask' else _prompt_provider_choice()
@@ -100,8 +106,12 @@ def main():
             print(f"Proveedor seleccionado: {provider.name}")
             continue
 
-        # Recuperación de contexto
-        retrieved_chunks = retrieve(query, index, chunks_df, args.k)
+        # Recuperación de contexto (si no hay índice/chunks, devolverá error claro)
+        try:
+            retrieved_chunks = retrieve(query, index, chunks_df, args.k)
+        except FileNotFoundError as e:
+            print(f"[RAG deshabilitado] {e}")
+            retrieved_chunks = []
         context_docs = []
         for chunk in retrieved_chunks:
             context_docs.append({

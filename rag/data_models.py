@@ -1,5 +1,7 @@
+import os
+import hashlib
 from dataclasses import dataclass
-from typing import Optional, List, Dict, Any
+from typing import Optional, Dict, Any
 
 
 @dataclass
@@ -27,24 +29,36 @@ class DocumentChunk:
     overlap: int = 0          
     
     def __post_init__(self):
-        """Genera automáticamente algunos campos si no se proporcionan."""
-        if not self.chunk_id and self.source:
-            # Generar ID único basado en fuente y página
-            self.chunk_id = f"{self.source}_{self.page}_{hash(self.content[:50]) % 10000}"
-        
+        """Normaliza y completa metadatos cuando faltan (pensado para PDFs en directorios)."""
+        # Normalizar source si es ruta
+        if self.source:
+            self.source = os.path.basename(self.source).strip()
+
+        # doc_id por defecto toma el source normalizado
         if not self.doc_id and self.source:
             self.doc_id = self.source
-            
+
+        # Título legible si falta
         if not self.title and self.source:
-            self.title = self.source.replace('.pdf', '').replace('_', ' ')
-            
+            name = self.source
+            if name.lower().endswith('.pdf'):
+                name = name[:-4]
+            self.title = name.replace('_', ' ').replace('-', ' ').strip().capitalize()
+
+        # Tamaño del chunk si falta
         if not self.chunk_size:
-            self.chunk_size = len(self.content)
+            self.chunk_size = len(self.content or "")
+
+        # chunk_id determinístico si falta
+        if not self.chunk_id:
+            h = hashlib.md5()
+            h.update((str(self.doc_id) + '|' + str(self.page) + '|' + (self.content or '')).encode('utf-8'))
+            self.chunk_id = f"chunk-{h.hexdigest()[:16]}"
 
     def to_dict(self) -> Dict[str, Any]:
         """Convierte el chunk a diccionario para serialización."""
         return {
-            'content': self.content,  # Cambiado de text a content
+            'content': self.content,
             'source': self.source,
             'page': self.page,
             'chunk_id': self.chunk_id,
@@ -78,41 +92,45 @@ class DocumentChunk:
             return f"{self.title} (pág. {self.page})"
         return f"{self.source} (pág. {self.page})"
 
+    @property
+    def page_number(self) -> int:
+        """Compatibilidad: algunos módulos consultan page_number; mapea a page."""
+        return self.page
 
-@dataclass
-class ProcessingStats:
-    """Estadísticas del procesamiento de documentos."""
-    total_documents: int = 0
-    total_chunks: int = 0
-    total_characters: int = 0
-    processing_time: float = 0.0
-    errors: List[str] = None
-    
-    def __post_init__(self):
-        if self.errors is None:
-            self.errors = []
-    
-    def add_error(self, error: str):
-        """Agrega un error a la lista."""
-        self.errors.append(error)
-    
-    def get_summary(self) -> Dict[str, Any]:
-        """Retorna un resumen de las estadísticas."""
-        return {
-            'documents_processed': self.total_documents,
-            'chunks_generated': self.total_chunks,
-            'total_characters': self.total_characters,
-            'processing_time_seconds': self.processing_time,
-            'error_count': len(self.errors),
-            'errors': self.errors[:5] if self.errors else []  # Primeros 5 errores
-        }
+    @classmethod
+    def from_file_fragment(
+        cls,
+        file_path: str,
+        page: int,
+        content: str,
+        *,
+        title: Optional[str] = None,
+        url: str = "",
+        vigencia: str = "",
+        doc_id: Optional[str] = None,
+        chunk_id: Optional[str] = None,
+    ) -> 'DocumentChunk':
+        """Crea un chunk a partir de un archivo local (PDF/TXT) y una página.
 
-
-# Alias para compatibilidad con código existente
-ChunkRecord = DocumentChunk  
-
-# Constantes útiles
-DEFAULT_CHUNK_SIZE = 800
-DEFAULT_CHUNK_OVERLAP = 120
-MAX_CHUNK_SIZE = 2000
-MIN_CHUNK_SIZE = 100
+        - source se deriva del nombre de archivo
+        - doc_id por defecto toma el source
+        - chunk_id se calcula de forma estable si no se entrega
+        """
+        source = os.path.basename(file_path).strip()
+        did = doc_id or source
+        if not chunk_id:
+            h = hashlib.md5()
+            h.update((str(did) + '|' + str(page) + '|' + (content or '')).encode('utf-8'))
+            chunk_id = f"chunk-{h.hexdigest()[:16]}"
+        ttl = title or (source[:-4] if source.lower().endswith('.pdf') else source)
+        ttl = ttl.replace('_', ' ').replace('-', ' ').strip().capitalize()
+        return cls(
+            content=content or "",
+            source=source,
+            page=int(page or 0),
+            chunk_id=chunk_id,
+            doc_id=did,
+            title=ttl,
+            url=url or "",
+            vigencia=vigencia or "",
+        )
