@@ -6,3 +6,4 @@ pandas>=2.0
 pyarrow>=12.0.0
 python-dotenv>=1.0.0
 requests>=2.25.0
+qdrant-client>=1.8.0
