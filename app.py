@@ -13,11 +13,12 @@ from rag.prompts import build_user_prompt, get_system_prompt
 
 
 def _prompt_provider_choice() -> str:
-    """Pregunta al usuario qué proveedor desea usar y retorna 'chatgpt' | 'deepseek' | 'mock'."""
-    print("\n¿Con qué proveedor quieres preguntar sobre la normativa UFRO?")
+    """Pregunta al usuario qué proveedor desea usar: 'chatgpt' | 'deepseek' | 'mock' | 'compare'."""
+    print("\nElige una opción:")
     print("  [1] ChatGPT (OpenRouter/OpenAI)")
     print("  [2] DeepSeek")
     print("  [3] Mock (pruebas sin costo)")
+    print("  [4] Compare (ChatGPT vs DeepSeek)")
     while True:
         choice = input("Elige proveedor: ").strip().lower()
         if choice in ("1", "chatgpt", "gpt", "openai"):
@@ -26,6 +27,8 @@ def _prompt_provider_choice() -> str:
             return "deepseek"
         if choice in ("3", "mock", "m"):
             return "mock"
+        if choice in ("4", "compare", "cmp"):
+            return "compare"
         print("Opción no válida. Responde 1, 2 o 3.")
 
 
@@ -72,6 +75,75 @@ def main():
 
     # Elegir proveedor inicial
     provider_key = args.provider if args.provider != 'ask' else _prompt_provider_choice()
+
+    # Si eligen 'compare' en el menú, pedir la consulta y comparar antes de entrar al chat
+    if provider_key == 'compare':
+        comp_q = input("Consulta para comparar (se enviará a ChatGPT y DeepSeek): ").strip()
+        if comp_q:
+            # Recuperación de contexto una sola vez
+            try:
+                t_retr0 = time.time()
+                retrieved_chunks = retrieve(comp_q, index, chunks_df, args.k)
+                t_retr = time.time() - t_retr0
+            except FileNotFoundError:
+                retrieved_chunks = []
+                t_retr = 0.0
+
+            context_docs = []
+            for chunk in retrieved_chunks:
+                context_docs.append({
+                    'content': getattr(chunk, 'content', ''),
+                    'source': getattr(chunk, 'source', ''),
+                    'page': getattr(chunk, 'page', None),
+                    'score': getattr(chunk, 'score', None)
+                })
+
+            user_prompt = build_user_prompt(comp_q, context_docs)
+            system_prompt = get_system_prompt()
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+
+            comparisons = []
+            for key in ('deepseek', 'chatgpt'):
+                prov = _instantiate_provider(key)
+                start = time.time()
+                try:
+                    ans = prov.chat(messages)
+                except Exception as e:
+                    ans = f"[Error proveedor] {e}"
+                elapsed = time.time() - start
+                comparisons.append({
+                    'label': key.upper(),
+                    'model': prov.name,
+                    'time': elapsed,
+                    'answer': ans,
+                })
+
+            fastest = min(comparisons, key=lambda x: x['time'])
+            slowest = max(comparisons, key=lambda x: x['time'])
+
+            print("\n" + "="*80)
+            print("🔍 COMPARACIÓN DE RESPUESTAS")
+            print(f"Pregunta: {comp_q}")
+            print("="*80 + "\n")
+            for comp in comparisons:
+                print(f"🤖 {comp['label']}")
+                print(f"Modelo: {comp['model']}")
+                print(f"Tiempo: {comp['time']:.2f}s")
+                print("-"*40)
+                print(comp['answer'])
+                print("-"*40 + "\n")
+            print("📊 ESTADÍSTICAS:")
+            print(f"Más rápido: {fastest['time']:.2f}s ({fastest['model']})")
+            print(f"Más lento: {slowest['time']:.2f}s ({slowest['model']})")
+            print("(Retrieve común): {:.2f}s".format(t_retr))
+            print()
+
+        # Después de comparar, pedir proveedor para el chat
+        provider_key = _prompt_provider_choice()
+
     provider = _instantiate_provider(provider_key)
     print(f"Proveedor seleccionado: {provider.name}")
 
@@ -85,7 +157,7 @@ def main():
         return
 
     # Modo interactivo
-    print("Escribe 'exit' para salir. Comando: /prov para cambiar proveedor.")
+    print("Escribe 'exit' para salir. Comandos: /prov para cambiar proveedor | /compare para comparar | 4 = comparar")
     while True:
         try:
             query = input("Consulta: ")
@@ -102,7 +174,86 @@ def main():
             print(f"Proveedor seleccionado: {provider.name}")
             continue
 
-        # Recuperación de contexto (si no hay índice/chunks, devolverá error claro)
+        # Comando de comparación rápida entre DeepSeek y ChatGPT
+        ql = query.strip().lower()
+        if ql.startswith('/compare') or ql == 'compare' or ql == '4':
+            if ql in ('/compare', 'compare', '4'):
+                comp_q = input("Consulta para comparar (se enviará a ChatGPT y DeepSeek): ").strip()
+            else:
+                parts = query.split(' ', 1)
+                comp_q = parts[1].strip() if len(parts) > 1 else ''
+            if not comp_q:
+                print("Uso: /compare <pregunta>")
+                continue
+
+            # Recuperación de contexto una sola vez
+            try:
+                t_retr0 = time.time()
+                retrieved_chunks = retrieve(comp_q, index, chunks_df, args.k)
+                t_retr = time.time() - t_retr0
+            except FileNotFoundError:
+                retrieved_chunks = []
+                t_retr = 0.0
+
+            context_docs = []
+            for chunk in retrieved_chunks:
+                context_docs.append({
+                    'content': getattr(chunk, 'content', ''),
+                    'source': getattr(chunk, 'source', ''),
+                    'page': getattr(chunk, 'page', None),
+                    'score': getattr(chunk, 'score', None)
+                })
+
+            user_prompt = build_user_prompt(comp_q, context_docs)
+            system_prompt = get_system_prompt()
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+
+            # Ejecutar con DeepSeek y ChatGPT 
+            comparisons = []
+            for key in ('deepseek', 'chatgpt'):
+                prov = _instantiate_provider(key)
+                start = time.time()
+                try:
+                    ans = prov.chat(messages)
+                except Exception as e:
+                    ans = f"[Error proveedor] {e}"
+                elapsed = time.time() - start
+                comparisons.append({
+                    'label': key.upper(),
+                    'model': prov.name,
+                    'time': elapsed,
+                    'answer': ans,
+                })
+
+            # Determinar más rápido / más lento
+            fastest = min(comparisons, key=lambda x: x['time'])
+            slowest = max(comparisons, key=lambda x: x['time'])
+
+            # Render
+            print("\n" + "="*80)
+            print("🔍 COMPARACIÓN DE RESPUESTAS")
+            print(f"Pregunta: {comp_q}")
+            print("="*80 + "\n")
+
+            for comp in comparisons:
+                print(f"🤖 {comp['label']}")
+                print(f"Modelo: {comp['model']}")
+                print(f"Tiempo: {comp['time']:.2f}s")
+                print("-"*40)
+                print(comp['answer'])
+                print("-"*40 + "\n")
+
+            print("📊 ESTADÍSTICAS:")
+            print(f"Más rápido: {fastest['time']:.2f}s ({fastest['model']})")
+            print(f"Más lento: {slowest['time']:.2f}s ({slowest['model']})")
+            print("(Retrieve común): {:.2f}s".format(t_retr))
+            print()
+            continue
+
+        # Recuperación de contexto 
         t_start = time.time()
         try:
             t_retr0 = time.time()
