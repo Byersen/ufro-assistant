@@ -11,11 +11,11 @@ from .data_models import DocumentChunk
 
 # Importaciones opcionales (no necesarias para construir índices, p. ej. python -m rag.embed)
 try:
-    from .rag_engine import RAGEngine, RAGResponse, ask_rag_question  # type: ignore
+    from .rag_engine import RAGEngine, RAGResponse, ask_rag_question 
 except Exception:
-    RAGEngine = None  # type: ignore
-    RAGResponse = None  # type: ignore
-    ask_rag_question = None  # type: ignore
+    RAGEngine = None 
+    RAGResponse = None  
+    ask_rag_question = None  
 
 __all__ = [
     'Retriever', 

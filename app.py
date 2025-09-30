@@ -1,9 +1,6 @@
-"""
-CLI para UFRO Assistant con selección y cambio de proveedor (ChatGPT/DeepSeek/Mock).
-"""
-
 import argparse
 import os
+import time
 from dotenv import load_dotenv
 import faiss
 import pandas as pd
@@ -106,11 +103,15 @@ def main():
             continue
 
         # Recuperación de contexto (si no hay índice/chunks, devolverá error claro)
+        t_start = time.time()
         try:
+            t_retr0 = time.time()
             retrieved_chunks = retrieve(query, index, chunks_df, args.k)
+            t_retr = time.time() - t_retr0
         except FileNotFoundError as e:
             print(f"[RAG deshabilitado] {e}")
             retrieved_chunks = []
+            t_retr = 0.0
         context_docs = []
         for chunk in retrieved_chunks:
             context_docs.append({
@@ -127,11 +128,33 @@ def main():
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
+        # Llamada al proveedor y medición de latencia
         try:
+            t_chat0 = time.time()
             response = provider.chat(messages)
+            t_chat = time.time() - t_chat0
         except Exception as e:
             response = f"[Error proveedor] {e}"
+            t_chat = 0.0
         print(f"\nRespuesta:\n{response}\n")
+
+        # Stats mínimas: latencias, tokens aprox y costo estimado
+        def _approx_tokens(text: str) -> int:
+            return max(1, len(text) // 4)
+
+        tokens_in = _approx_tokens(str(messages))
+        tokens_out = _approx_tokens(response)
+        try:
+            cost_est = provider.estimate_cost(tokens_in, tokens_out)
+        except Exception:
+            cost_est = 0.0
+        t_total = time.time() - t_start
+
+        print("[Stats] ")
+        print(f"  Proveedor: {provider.name}")
+        print(f"  k: {args.k} | Chunks recuperados: {len(retrieved_chunks)}")
+        print(f"  Latencia retrieve: {t_retr:.3f}s | Latencia chat: {t_chat:.3f}s | Total: {t_total:.3f}s")
+        print(f"  Tokens aprox IN: {tokens_in} | OUT: {tokens_out} | Costo estimado: ${cost_est:.6f}")
 
         # Ofrecer cambio de proveedor tras cada respuesta
         change = input("¿Cambiar de proveedor? [Enter=No] | [1]=ChatGPT | [2]=DeepSeek | [3]=Mock] ").strip().lower()
