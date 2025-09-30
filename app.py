@@ -53,7 +53,7 @@ def main():
     parser.add_argument('--provider', choices=['ask', 'chatgpt', 'deepseek', 'mock'], default='ask')
     parser.add_argument('--k', type=int, default=5)
     parser.add_argument('--batch', action='store_true')
-    parser.add_argument('--gold', default='eval/gold_set_20.jsonl')
+    parser.add_argument('--gold', default='eval/gold_set.jsonl')
     args = parser.parse_args()
 
     # Cargar índice y chunks si existen (modo amistoso)
@@ -83,8 +83,7 @@ def main():
         from eval.quality_evaluator import QualityEvaluator
         evaluator = QualityEvaluator(gold_set_path=args.gold, k=args.k)
         evaluator.rag_engine.set_provider(provider)
-        results = evaluator.evaluate_provider(provider, provider.name)
-        metrics = evaluator.calculate_aggregate_metrics(results)
+        metrics = evaluator.run_and_save(provider, provider.name)
         print("Resumen evaluación:", metrics)
         return
 
