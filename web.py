@@ -41,12 +41,13 @@ def _load_rag_cache():
 
 
 def _instantiate_provider(provider_key: str):
+    key = (provider_key or "").strip().lower()
     try:
-        if provider_key == "chatgpt":
+        if key == "chatgpt":
             return ChatGPTProvider()
-        if provider_key == "deepseek":
+        if key == "deepseek":
             return DeepSeekProvider()
-        if provider_key == "mock":
+        if key == "mock":
             return MockProvider()
     except Exception as e:
         # Si falla el proveedor (p.ej. falta de API key), degradar a Mock
@@ -74,6 +75,27 @@ def _format_docs(docs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         })
     return out
 
+def _provider_status() -> Dict[str, Any]:
+    """Detecta si hay API keys configuradas para cada proveedor."""
+    chatgpt_ok = bool(os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY"))
+    deepseek_ok = bool(os.getenv("DEEPSEEK_API_KEY"))
+    return {
+        "chatgpt": chatgpt_ok,
+        "deepseek": deepseek_ok,
+        "mock": True,
+    }
+
+@app.after_request
+def add_no_cache_headers(response):
+    """Evita que el navegador guarde en caché las páginas/respuestas.
+
+    Esto ayuda a que al volver/recargar no se muestre la última respuesta renderizada.
+    """
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
 
 @app.get("/healthz")
 def healthz():
@@ -88,16 +110,18 @@ def index():
         {"key": "mock", "label": "Mock (sin costo)"},
         {"key": "compare", "label": "Comparar (ChatGPT vs DeepSeek)"},
     ]
-    return render_template("index.html", providers=providers, result=None)
+    return render_template("index.html", providers=providers, provider_status=_provider_status(), result=None)
 
 
 @app.post("/ask")
 def ask():
     _load_rag_cache()
 
-    query = (request.form.get("query") or request.json.get("query") if request.is_json else None) or ""
-    provider_key = (request.form.get("provider") or request.json.get("provider") if request.is_json else None) or "mock"
+    query = (request.form.get("query") or (request.json.get("query") if request.is_json else None) or "").strip()
+    provider_key = (request.form.get("provider") or (request.json.get("provider") if request.is_json else None) or "mock").strip().lower()
     k = int((request.form.get("k") or (request.json.get("k") if request.is_json else None) or 5))
+
+    print(f"[web] Incoming ask: provider='{provider_key}', k={k}, len(query)={len(query)}")
 
     # Recuperación de contexto
     try:
@@ -141,12 +165,14 @@ def ask():
                 "time_sec": latency,
                 "answer": ans,
             })
+        print("[web] Compare done: deepseek vs chatgpt")
         result = {
             "mode": "compare",
             "question": query,
             "retrieval_sec": t_retr,
             "comparisons": comps,
             "docs": _format_docs(context_docs),
+            "provider_status": _provider_status(),
         }
     else:
         prov = _instantiate_provider(provider_key)
@@ -162,6 +188,7 @@ def ask():
             cost_est = prov.estimate_cost(tokens_in, tokens_out)
         except Exception:
             cost_est = 0.0
+        print(f"[web] Provider used: class={prov.__class__.__name__}, model='{getattr(prov, 'model', prov.name)}'")
         result = {
             "mode": "single",
             "question": query,
@@ -174,6 +201,7 @@ def ask():
             "tokens_out": tokens_out,
             "cost_est": cost_est,
             "docs": _format_docs(context_docs),
+            "provider_status": _provider_status(),
         }
 
     if request.is_json:
@@ -185,7 +213,7 @@ def ask():
         {"key": "mock", "label": "Mock (sin costo)"},
         {"key": "compare", "label": "Comparar (ChatGPT vs DeepSeek)"},
     ]
-    return render_template("index.html", providers=providers, result=result)
+    return render_template("index.html", providers=providers, provider_status=_provider_status(), result=result)
 
 
 if __name__ == "__main__":

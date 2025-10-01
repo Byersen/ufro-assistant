@@ -3,6 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <title>UFRO Assistant (Web)</title>
   <style>
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
@@ -24,14 +27,22 @@
     <h1>UFRO Assistant</h1>
     <p>Asistente conversacional sobre normativa UFRO con RAG. Esta es una interfaz mínima para consultas rápidas.</p>
 
-    <form method="post" action="/ask">
+  <form id="ask-form" method="post" action="/ask">
       <div class="row">
         <label for="provider">Proveedor</label>
         <select name="provider" id="provider">
           {% for p in providers %}
-          <option value="{{p.key}}">{{p.label}}</option>
+          <option value="{{p.key}}"
+            {% if result and result.provider == p.key %}selected{% endif %}>{{p.label}}
+          </option>
           {% endfor %}
         </select>
+        {% if provider_status %}
+          <span style="font-size:12px;color:#666">Estado: 
+            ChatGPT: {{ 'OK' if provider_status.chatgpt else 'Sin API key' }} | 
+            DeepSeek: {{ 'OK' if provider_status.deepseek else 'Sin API key' }}
+          </span>
+        {% endif %}
         <label for="k">k</label>
         <input type="number" id="k" name="k" min="1" value="5" />
       </div>
@@ -42,11 +53,20 @@
       </p>
 
       <button type="submit">Preguntar</button>
+      <button type="button" id="reset-btn" title="Limpia la consulta y los resultados">Nueva consulta</button>
     </form>
 
     {% if result %}
       <hr>
       <h2>Resultado</h2>
+      {% if result.provider_status %}
+        {% set ps = result.provider_status %}
+        {% if result.provider == 'chatgpt' and not ps.chatgpt %}
+          <p style="color:#b00">Aviso: ChatGPT no tiene API key configurada. Ve a .env y define OPENROUTER_API_KEY u OPENAI_API_KEY.</p>
+        {% elif result.provider == 'deepseek' and not ps.deepseek %}
+          <p style="color:#b00">Aviso: DeepSeek no tiene DEEPSEEK_API_KEY configurado. Ve a .env.</p>
+        {% endif %}
+      {% endif %}
       {% if result.mode == 'single' %}
         <p class="stats">Proveedor: <strong>{{result.provider}}</strong> | Modelo: <strong>{{result.model}}</strong></p>
         <p class="stats">Retrieve: {{'%.2f'|format(result.retrieval_sec)}}s | Chat: {{'%.2f'|format(result.chat_sec)}}s | Tokens IN: {{result.tokens_in}} | OUT: {{result.tokens_out}} | Costo est.: ${{'%.6f'|format(result.cost_est)}}</p>
@@ -75,5 +95,19 @@
       </div>
     {% endif %}
   </div>
+  <script>
+    document.getElementById('reset-btn')?.addEventListener('click', () => {
+      const form = document.getElementById('ask-form');
+      form?.reset();
+      // Hacer navegación a la página principal sin parámetros para limpiar
+      window.location.href = '/';
+    });
+    // Evita que el navegador use back/forward cache (bfcache)
+    window.addEventListener('pageshow', (e) => {
+      if (e.persisted) {
+        window.location.reload();
+      }
+    });
+  </script>
 </body>
 </html>
