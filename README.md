@@ -125,6 +125,37 @@ python app.py --provider chatgpt --k 5
 
 La consola muestra latencias de retrieve/chat, tokens aproximados y costo estimado según el proveedor.
 
+## Ejecutar en modo Web (Flask)
+
+La app web está en `web.py` y usa el mismo índice FAISS local. Asegúrate primero de ejecutar la preparación de datos (ingest + embed).
+
+```powershell
+python web.py
+```
+
+Se inicia en:
+- http://127.0.0.1:8000
+- http://0.0.0.0:8000 (útil para exponer en red/EC2)
+
+En la UI web puedes:
+- Escribir la consulta
+- Elegir proveedor: ChatGPT, DeepSeek, Mock o "Comparar" (DeepSeek vs ChatGPT)
+- Ajustar `k` (número de fragmentos de contexto)
+
+Endpoints útiles:
+- Salud: `GET /healthz` -> `{ "status": "ok" }`
+- API JSON: `POST /ask`
+	- Body JSON: `{"query": "texto", "provider": "chatgpt|deepseek|mock|compare", "k": 5}`
+
+Ejemplo (PowerShell):
+
+```powershell
+$body = @{ query = "¿Cuál es la nota mínima de aprobación?"; provider = "mock"; k = 5 } | ConvertTo-Json
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/ask" -Method Post -Body $body -ContentType "application/json"
+```
+
+Nota producción: el servidor de desarrollo de Flask no es para producción. En Linux/EC2 usa un WSGI (por ejemplo, gunicorn detrás de Nginx) y abre el puerto 8000 en el Security Group.
+
 ## Evaluación con gold set (batch)
 
 El módulo `eval/quality_evaluator.py` permite ejecutar una evaluación offline sobre preguntas definidas en `eval/gold_set.jsonl`.
@@ -158,6 +189,12 @@ Si `answer` está vacío, la métrica `exact_match` solo considerará presencia 
 - `providers/*`: proveedores LLM (ChatGPT, DeepSeek y Mock)
 - `eval/*`: evaluación de calidad y gold set
 - `docker-compose.yml`: servicio Qdrant
+
+## Preguntas frecuentes
+
+• ¿Qué es `k`?
+
+`k` es el número de fragmentos (chunks) más similares que se recuperan del índice vectorial y se pasan como contexto al LLM. Valores típicos 4–6. Subir `k` aumenta chances de cubrir la respuesta, pero puede añadir ruido y más tokens.
 
 ## Problemas comunes y soluciones
 
